@@ -522,9 +522,9 @@ final class StoreKitPaywallViewController: UIViewController {
                     self.loadingIndicator.stopAnimating()
 
                     if hasActiveSubscription {
-                        self.showAlert(title: "Success", message: "Your subscription has been restored.") {
-                            self.handleSuccessfulPurchase()
-                        }
+                        // Sync first, then confirm — showing "restored" before premium is
+                        // actually granted is how users end up locked out.
+                        self.handleSuccessfulPurchase(isRestore: true)
                     } else {
                         self.showAlert(title: "No Subscription", message: "No active subscription found.")
                     }
@@ -538,9 +538,38 @@ final class StoreKitPaywallViewController: UIViewController {
         }
     }
 
-    private func handleSuccessfulPurchase() {
-        onPurchaseSuccess?()
-        onClose?()
+    private func handleSuccessfulPurchase(isRestore: Bool = false) {
+        // The purchase was made with raw StoreKit 2, so Adapty does not know about it yet.
+        // Sync before handing control back, otherwise the caller dismisses the paywall while
+        // isPremiumActive is still false and the user stays locked out after paying.
+        loadingIndicator.startAnimating()
+        continueButton.isEnabled = false
+
+        Task { [weak self] in
+            let granted = await SubscriptionManager.shared.syncAfterStoreKitPurchase()
+
+            await MainActor.run {
+                guard let self else { return }
+                self.loadingIndicator.stopAnimating()
+                self.continueButton.isEnabled = true
+
+                if granted {
+                    // onPurchaseSuccess dismisses the paywall — do not also call onClose.
+                    if isRestore {
+                        self.showAlert(title: "Success", message: "Your subscription has been restored.") { [weak self] in
+                            self?.onPurchaseSuccess?()
+                        }
+                    } else {
+                        self.onPurchaseSuccess?()
+                    }
+                } else {
+                    self.showError(
+                        "Your purchase went through, but we could not activate premium yet. "
+                        + "Please check your connection and tap Restore."
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Actions

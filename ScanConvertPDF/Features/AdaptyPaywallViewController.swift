@@ -204,6 +204,19 @@ class AdaptyPaywallViewController: UIViewController {
         presenter.present(alert, animated: true)
     }
     
+    private func showPendingAlert() {
+        let alert = UIAlertController(
+            title: "Purchase Pending",
+            message: "Your purchase is awaiting approval. Premium unlocks once it is approved.",
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+
+        let presenter = paywallController ?? self
+        presenter.present(alert, animated: true)
+    }
+
     private func showNoSubscriptionAlert() {
         let alert = UIAlertController(
             title: "No Subscription Found",
@@ -278,19 +291,45 @@ extension AdaptyPaywallViewController: AdaptyPaywallControllerDelegate {
         purchaseResult: AdaptyPurchaseResult
     ) {
         loadingView?.stopAnimating()
-        
+
         // logPurchaseAnalytics
-        
+
+        // This delegate fires for every outcome, cancellation included. Without this switch
+        // a cancelled purchase would be reported as .purchased and close the paywall.
+        switch purchaseResult {
+        case .userCancelled:
+            return
+
+        case .pending:
+            showPendingAlert()
+            return
+
+        case .success:
+            break
+
+        @unknown default:
+            return
+        }
+
         Task { [weak self] in
             guard let self = self else { return }
-            
+
             await self.subscriptionManager.updatePremiumStatus()
-            
+
             await MainActor.run {
                 if self.subscriptionManager.isPremiumActive {
                     self.showSuccessAlert(
                         title: "Welcome to Premium!",
                         message: "You now have access to all premium features.",
+                        result: .purchased
+                    )
+                } else {
+                    // The purchase succeeded but the profile has not caught up yet. Without
+                    // this branch the paywall just sits there and the user taps Buy again.
+                    self.showSuccessAlert(
+                        title: "Purchase Complete",
+                        message: "Your purchase went through. It can take a moment to activate — "
+                            + "if premium is not available yet, tap Restore.",
                         result: .purchased
                     )
                 }

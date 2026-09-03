@@ -83,6 +83,8 @@ public final class SubscriptionManager: ObservableObject, SubscriptionManaging {
     private var configurationCache: [String: CachedConfiguration] = [:]
     private let cacheQueue = DispatchQueue(label: "com.unibox.cache", attributes: .concurrent)
     private var cancellables = Set<AnyCancellable>()
+    private var transactionListener: Task<Void, Never>?
+    private var storeKitSyncTask: Task<Bool, Never>?
 
     private enum Keys {
         static let isPremiumActive = "isPremiumActive"
@@ -114,13 +116,8 @@ public final class SubscriptionManager: ObservableObject, SubscriptionManaging {
     public func initialize() async {
         guard !isReady else { return }
 
-        do {
-            try await withTimeout(seconds: 5.0) {
-                try await AdaptyUI.activate(configuration: .default)
-            }
-        } catch {
-            // optional: log
-        }
+        // AdaptyUI is activated in AppDelegate.setupAdapty(); activating it a second time
+        // here just throws and silently drops the .default configuration.
 
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -154,13 +151,122 @@ public final class SubscriptionManager: ObservableObject, SubscriptionManaging {
                 }
             }
 
-            let newStatus = profile.accessLevels["premium"]?.isActive ?? false
-            self.isPremiumActive = newStatus
+            let adaptyAccess = profile.accessLevels["premium"]?.isActive ?? false
+
+            if adaptyAccess {
+                await MainActor.run { self.isPremiumActive = true }
+            } else {
+                // Adapty reports no access. Before locking the user out, verify against
+                // StoreKit directly: a purchase made through the StoreKit fallback paywall
+                // reaches Adapty only via App Store Server Notifications, which lag (or are
+                // not configured at all). Trusting Adapty blindly here means a paying user
+                // stays behind the paywall.
+                let localAccess = await hasActiveStoreKitEntitlement()
+                await MainActor.run { self.isPremiumActive = localAccess }
+            }
 
         } catch is TimeoutError {
-            // optional: log
+            // Network unavailable — keep the last known status.
         } catch {
-            // optional: log
+            // Adapty is unreachable or was never activated. Fall back to StoreKit so a
+            // paying user who reinstalled is not left behind the paywall; only upgrade,
+            // never revoke on the strength of a failed call.
+            if await hasActiveStoreKitEntitlement() {
+                await MainActor.run { self.isPremiumActive = true }
+            }
+        }
+    }
+
+    // MARK: - StoreKit entitlements (fallback source of truth)
+
+    /// True when StoreKit itself reports a live, non-revoked entitlement to one of this
+    /// app's subscription products. Only the paywall's own product IDs count, so an
+    /// unrelated non-consumable added later cannot silently grant premium.
+    public func hasActiveStoreKitEntitlement() async -> Bool {
+        let knownProductIds = Set(PaywallProducts.allProductIds)
+
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            guard knownProductIds.contains(transaction.productID) else { continue }
+            guard transaction.revocationDate == nil else { continue }
+            if let expiration = transaction.expirationDate, expiration <= Date() { continue }
+
+            return true
+        }
+        return false
+    }
+
+    /// Call after a purchase or restore made with raw StoreKit 2 (the fallback paywall).
+    ///
+    /// StoreKit is checked first because it answers instantly and offline, and because the
+    /// fallback paywall only appears when Adapty is already unreachable — going to Adapty
+    /// first would leave a paying user staring at a spinner through three retries. Adapty is
+    /// reconciled in the background so the server side catches up.
+    @discardableResult
+    public func syncAfterStoreKitPurchase() async -> Bool {
+        // A concurrent caller waits for the in-flight result instead of getting a stale
+        // isPremiumActive — otherwise the paywall can report "could not activate premium"
+        // while the sync it is racing with is about to succeed.
+        if let inFlight = storeKitSyncTask {
+            return await inFlight.value
+        }
+
+        let task = Task { [weak self] () -> Bool in
+            guard let self else { return false }
+
+            let localAccess = await self.hasActiveStoreKitEntitlement()
+
+            if localAccess {
+                await MainActor.run { self.isPremiumActive = true }
+            }
+
+            // Push the receipt to Adapty so its profile catches up, then reconcile.
+            // Adapty.restorePurchases() is called directly rather than through the
+            // restorePurchases() wrapper, because that wrapper writes isPremiumActive
+            // unconditionally and would briefly flip a paying user back to false.
+            // updatePremiumStatus() already refuses to downgrade below StoreKit's answer.
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await Adapty.restorePurchases()
+                await self.updatePremiumStatus()
+            }
+
+            return localAccess
+        }
+
+        storeKitSyncTask = task
+        let result = await task.value
+        storeKitSyncTask = nil
+
+        return result
+    }
+
+    // MARK: - Transaction listener
+
+    /// Observes transactions that arrive outside a paywall: Ask to Buy approvals, purchases
+    /// made on another device, renewals and refunds.
+    ///
+    /// Order matters: sync first, finish second. syncAfterStoreKitPurchase pushes the receipt
+    /// to Adapty, and finishing afterwards is safe because finish() removes the transaction
+    /// from the unfinished queue but not from the receipt or from currentEntitlements — Adapty
+    /// can still validate it server-side. Leaving it unfinished instead would make the App
+    /// Store replay the purchase prompt on every launch whenever Adapty failed to activate.
+    public func startTransactionListener() {
+        guard transactionListener == nil else { return }
+
+        transactionListener = Task.detached { [weak self] in
+            for await update in Transaction.updates {
+                switch update {
+                case .verified(let transaction):
+                    _ = await self?.syncAfterStoreKitPurchase()
+                    await transaction.finish()
+
+                case .unverified(let transaction, _):
+                    // Grants nothing, but must still be finished or the App Store replays
+                    // it on every launch forever.
+                    await transaction.finish()
+                }
+            }
         }
     }
 
@@ -178,14 +284,20 @@ public final class SubscriptionManager: ObservableObject, SubscriptionManaging {
 
             let isPremium = profile.accessLevels["premium"]?.isActive ?? false
 
+            // Adapty saying "no" is not proof there is no subscription — its profile can lag
+            // behind a StoreKit purchase. Check StoreKit before revoking access.
+            let hasAccess = isPremium ? true : await hasActiveStoreKitEntitlement()
+
             await MainActor.run {
-                self.isPremiumActive = isPremium
+                self.isPremiumActive = hasAccess
             }
 
-            return isPremium
+            return hasAccess
 
         } catch {
-            return false
+            guard await hasActiveStoreKitEntitlement() else { return false }
+            await MainActor.run { self.isPremiumActive = true }
+            return true
         }
     }
 

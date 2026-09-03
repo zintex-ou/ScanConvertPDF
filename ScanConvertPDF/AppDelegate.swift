@@ -36,6 +36,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         setupNavigationBarAppearance()
 
+        // 0. StoreKit transaction listener first — Apple requires it to be attached as early
+        // as possible in the launch sequence, and it must not depend on Adapty coming up.
+        SubscriptionManager.shared.startTransactionListener()
+
         // 1. Firebase is the first (so that the appInstanceID is ready as soon as possible)
         setupFirebase()
 
@@ -86,7 +90,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         } catch {
             print("[Adapty] Activation failed: \(error)")
+            // No point preloading paywalls against an SDK that never came up — the paywall
+            // screens fall back to StoreKit on their own.
+            return
         }
+
+        // Preloads paywall configurations and refreshes premium status. This was never
+        // called, which is why every paywall opened cold and hit the fallback timeout.
+        await SubscriptionManager.shared.initialize()
     }
 
     // MARK: - Firebase → Adapty Integration (з retry)

@@ -268,16 +268,14 @@ final class RateAppViewController: UIViewController {
         onSubmit?(rating)
         AppSettings.shared.isSubmittedRating = true
 
-        if rating <= 3 {
-            UIView.animate(withDuration: 0.2) { self.thanksLabel.alpha = 1 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.animateOut { [weak self] in
-                    self?.dismiss(animated: false, completion: nil)
-                }
-            }
-        } else {
-            requestInAppReview()
-            animateOut { [weak self] in
+        // Every rating gets the same treatment. Routing only 4-5 star raters to the App Store
+        // and quietly swallowing the rest is review gating — App Store Review Guideline 1.1.7
+        // prohibits filtering feedback this way, and it is grounds for rejection.
+        requestInAppReview()
+
+        UIView.animate(withDuration: 0.2) { self.thanksLabel.alpha = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.animateOut { [weak self] in
                 self?.dismiss(animated: false, completion: nil)
             }
         }
@@ -285,7 +283,12 @@ final class RateAppViewController: UIViewController {
 
     private func requestInAppReview() {
         guard let scene = view.window?.windowScene else { return }
-        SKStoreReviewController.requestReview(in: scene)
+
+        if #available(iOS 18.0, *) {
+            AppStore.requestReview(in: scene)
+        } else {
+            SKStoreReviewController.requestReview(in: scene)
+        }
     }
 }
 

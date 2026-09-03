@@ -14,6 +14,11 @@ final class WebPageConverterViewController: UIViewController {
 
     // MARK: - Properties
 
+    /// Folder the converted PDF should land in. `nil` saves it to Home, which is what the
+    /// main screen wants; FolderViewController sets this so the result stays in the folder
+    /// the user was standing in.
+    var targetFolder: CDFolder?
+
     private var currentURL: URL?
     private var urlContainerBottomConstraint: NSLayoutConstraint?
     private var urlContainerHeightConstraint: NSLayoutConstraint?
@@ -633,6 +638,10 @@ final class WebPageConverterViewController: UIViewController {
         cd.sizeBytes = Int64(data.count)
         cd.pageCount = Int16(pageCount)
         cd.thumbnailData = thumbData
+
+        if let targetFolder, !targetFolder.isDeleted, targetFolder.managedObjectContext != nil {
+            cd.folder = targetFolder
+        }
 
         CoreDataStack.shared.saveIfNeeded()
 

@@ -39,7 +39,7 @@ final class DefaultOnboardingViewController: UIViewController {
         ),
         .init(
             title: "Convert to PDF",
-            description: "Combine pages, reorder them, and export as a single PDF - ready to share or save.",
+            description: "Turn your pages into a single PDF - ready to share, print or save.",
             illustrationName: "onboarding-convert-image",
             buttonTitle: "Next"
         ),

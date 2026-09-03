@@ -820,11 +820,19 @@ extension FolderViewController {
             openPhotoLibrary()
 
         case .webPage:
-            showAlert(title: "Web Page", message: "TODO")
+            openWebPageConverter()
 
         case .documents:
             openDocumentPicker()
         }
+    }
+
+    func openWebPageConverter() {
+        let webVC = WebPageConverterViewController()
+        webVC.targetFolder = folder
+        let navController = UINavigationController(rootViewController: webVC)
+        navController.modalPresentationStyle = .fullScreen
+        present(navController, animated: true)
     }
 }
 
