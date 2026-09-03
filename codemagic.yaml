@@ -1,0 +1,51 @@
+workflows:
+  unity-ios-workflow:
+    name: Build
+    max_build_duration: 120
+    integrations:
+
+      app_store_connect: "Bhalat Puneey"
+    environment:
+      xcode: 26.0
+
+      groups:
+        # Codemagic > Environment variables group.
+        # Must contain CERTIFICATE_PRIVATE_KEY (secure).
+        - appstore_signing
+        
+    scripts:
+      - name: Pod install derived data
+        script: pod install
+        ignore_failure: true
+      - name: Set up keychain to be used for code signing using Codemagic CLI 'keychain' command
+        script: keychain initialize
+      - name: Fetch signing files for main target
+        script: |
+          app-store-connect fetch-signing-files "$(xcode-project detect-bundle-id)" \
+            --type IOS_APP_STORE \
+            --create
+            
+      - name: Set up signing certificate
+        script: keychain add-certificates
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
+      - |
+        #!/bin/sh
+        if [ -d "Pods" ]; then
+          xcode-project build-ipa \
+            --workspace "$(ls -d *.xcworkspace| head -1)" \
+            --scheme "$(echo "$(ls -d *.xcworkspace| head -1)" | sed "s/.xcworkspace//g")" \
+            --archive-xcargs "CODE_SIGN_STYLE=Auto"
+        else
+          xcode-project build-ipa \
+            --project "$(ls -d *.xcodeproj| head -1)" \
+            --scheme "$(echo "$(ls -d *.xcodeproj| head -1)" | sed "s/.xcodeproj//g")" \
+            --archive-xcargs "CODE_SIGN_STYLE=Auto"
+        fi
+      - name: Publish
+        script: |
+          app-store-connect publish --path "$(ls /Users/builder/clone/build/ios/ipa/*.ipa| head -1)"
+          
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM

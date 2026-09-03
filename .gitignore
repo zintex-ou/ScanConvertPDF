@@ -1,0 +1,41 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+
+# CocoaPods
+Pods/
+
+# Fastlane
+fastlane/report.xml
+fastlane/screenshots/
+fastlane/test_output/
+
+# Secrets — never commit
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.pem
+*.key
+id_rsa*
+.env
+.env.*
+!.env.example
+secrets.xcconfig
+
+# macOS
+.DS_Store
+._*

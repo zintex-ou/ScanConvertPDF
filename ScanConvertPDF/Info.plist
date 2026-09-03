@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <key>AdaptyAppleSearchAdsAttributionCollectionEnabled</key>
+    <true/>
+
+    <key>NSCameraUsageDescription</key>
+    <string>We need access to the camera to scan documents.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>We need access to your photo library to import document images.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>We need permission to save scanned documents to your photo library.</string>
+
+    <key>NSUserTrackingUsageDescription</key>
+    <string>We use your data to deliver personalized ads and measure advertising performance.</string>
+
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+                    <key>UISceneStoryboardFile</key>
+                    <string>Main</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
+
+</dict>
+</plist>
