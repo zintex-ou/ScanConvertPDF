@@ -539,8 +539,17 @@ final class StoreKitPaywallViewController: UIViewController {
     }
 
     private func handleSuccessfulPurchase() {
-        onPurchaseSuccess?()
-        onClose?()
+        loadingIndicator.startAnimating()
+        Task {
+            // Native StoreKit purchase bypasses Adapty's own purchase flow,
+            // so isPremiumActive won't reflect it until we sync explicitly.
+            await SubscriptionManager.shared.restorePurchases()
+            await MainActor.run {
+                self.loadingIndicator.stopAnimating()
+                self.onPurchaseSuccess?()
+                self.onClose?()
+            }
+        }
     }
 
     // MARK: - Actions

@@ -1228,25 +1228,31 @@ extension MainViewController: PHPickerViewControllerDelegate {
         picker.dismiss(animated: true)
         guard !results.isEmpty else { return }
 
-        var images: [UIImage] = []
+        var images = [UIImage?](repeating: nil, count: results.count)
+        let lock = NSLock()
         let group = DispatchGroup()
 
-        for result in results {
+        for (index, result) in results.enumerated() {
             group.enter()
             result.itemProvider.loadObject(ofClass: UIImage.self) { obj, _ in
                 defer { group.leave() }
-                if let img = obj as? UIImage { images.append(img) }
+                guard let img = obj as? UIImage else { return }
+                lock.lock()
+                images[index] = img
+                lock.unlock()
             }
         }
 
         group.notify(queue: .main) { [weak self] in
-            guard let self, !images.isEmpty else { return }
+            guard let self else { return }
+            let orderedImages = images.compactMap { $0 }
+            guard !orderedImages.isEmpty else { return }
 
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd_HH-mm-ss"
             let name = "Gallery_\(df.string(from: Date()))"
 
-            if let pdfData = self.makePDFDataFromImagesOriginalSize(images) {
+            if let pdfData = self.makePDFDataFromImagesOriginalSize(orderedImages) {
                 self.persistPDF(data: pdfData, name: name, folderId: self.currentFolderId)
             }
         }

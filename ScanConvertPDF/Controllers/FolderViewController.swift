@@ -573,22 +573,15 @@ final class FolderViewController: UIViewController {
     private func makePDFData(from images: [UIImage]) -> Data? {
         guard !images.isEmpty else { return nil }
 
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 595, height: 842)) // A4-ish
-        return renderer.pdfData { ctx in
-            for img in images {
-                ctx.beginPage()
-                let pageBounds = ctx.pdfContextBounds
-
-                let aspect = min(pageBounds.width / img.size.width,
-                                 pageBounds.height / img.size.height)
-                let size = CGSize(width: img.size.width * aspect,
-                                  height: img.size.height * aspect)
-
-                let origin = CGPoint(x: (pageBounds.width - size.width) / 2,
-                                     y: (pageBounds.height - size.height) / 2)
-                img.draw(in: CGRect(origin: origin, size: size))
-            }
+        // Match MainViewController: keep each page at the image's own size
+        // instead of forcing A4, so scans from Home and from a folder are
+        // no longer different formats.
+        let pdf = PDFDocument()
+        for (i, img) in images.enumerated() {
+            guard let page = PDFPage(image: img) else { continue }
+            pdf.insert(page, at: i)
         }
+        return pdf.pageCount > 0 ? pdf.dataRepresentation() : nil
     }
 
     private func deletePDFFileIfNeeded(fileName: String?) {
@@ -729,25 +722,31 @@ extension FolderViewController: PHPickerViewControllerDelegate {
         picker.dismiss(animated: true)
         guard !results.isEmpty else { return }
 
-        var images: [UIImage] = []
+        var images = [UIImage?](repeating: nil, count: results.count)
+        let lock = NSLock()
         let group = DispatchGroup()
 
-        for result in results {
+        for (index, result) in results.enumerated() {
             group.enter()
             result.itemProvider.loadObject(ofClass: UIImage.self) { obj, _ in
                 defer { group.leave() }
-                if let img = obj as? UIImage { images.append(img) }
+                guard let img = obj as? UIImage else { return }
+                lock.lock()
+                images[index] = img
+                lock.unlock()
             }
         }
 
         group.notify(queue: .main) { [weak self] in
-            guard let self, !images.isEmpty else { return }
+            guard let self else { return }
+            let orderedImages = images.compactMap { $0 }
+            guard !orderedImages.isEmpty else { return }
 
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd_HH-mm-ss"
             let name = "Gallery_\(df.string(from: Date()))"
 
-            if let pdfData = self.makePDFData(from: images) {
+            if let pdfData = self.makePDFData(from: orderedImages) {
                 self.persistPDF(data: pdfData, name: name)
             }
         }

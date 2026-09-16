@@ -9,6 +9,7 @@ import UIKit
 import CoreData
 import Adapty
 import AdaptyUI
+import StoreKit
 import AppTrackingTransparency
 import AdSupport
 import Firebase
@@ -45,7 +46,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // 3. We listen for activation for ATT ASA (once)
         observeActivation()
 
+        // 4. Listen for StoreKit transactions that arrive outside the
+        //    purchase-button flow (Ask to Buy approvals, renewals,
+        //    purchases from another device) so premium status and
+        //    transaction.finish() aren't missed.
+        Task { await self.observeTransactionUpdates() }
+
         return true
+    }
+
+    private func observeTransactionUpdates() async {
+        for await update in Transaction.updates {
+            guard case .verified(let transaction) = update else { continue }
+            await SubscriptionManager.shared.restorePurchases()
+            await transaction.finish()
+        }
     }
 
     deinit {
