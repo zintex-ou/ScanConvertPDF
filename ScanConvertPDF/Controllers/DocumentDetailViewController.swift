@@ -54,6 +54,7 @@ final class DocumentDetailViewController: UIViewController {
         bar.tabbarColor = AppColors.cellBackground
 
         bar.onTapShare = { [weak self] in self?.shareTapped() }
+        bar.onTapOrganize = { [weak self] in self?.organizeTapped() }
         bar.onTapPrint = { [weak self] in self?.printTapped() }
         bar.onTapDelete = { [weak self] in self?.deleteTapped() }
         return bar
@@ -213,6 +214,36 @@ final class DocumentDetailViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    private func organizeTapped() {
+        guard let pdfDocument else { return }
+        let reorderVC = ReorderPagesViewController(pdfDocument: pdfDocument) { [weak self] newDocument in
+            self?.applyReorderedDocument(newDocument)
+        }
+        let nav = UINavigationController(rootViewController: reorderVC)
+        nav.modalPresentationStyle = .fullScreen
+        present(nav, animated: true)
+    }
+
+    private func applyReorderedDocument(_ newDocument: PDFDocument) {
+        guard let url = pdfURL() else { return }
+        guard newDocument.write(to: url) else {
+            showAlert(title: "Error", message: "Failed to save page changes.")
+            return
+        }
+
+        self.pdfDocument = newDocument
+        pdfView.document = newDocument
+        updatePageInfo()
+
+        document.pageCount = Int16(newDocument.pageCount)
+        if let firstPage = newDocument.page(at: 0) {
+            let thumb = firstPage.thumbnail(of: CGSize(width: 200, height: 200), for: .mediaBox)
+            document.thumbnailData = thumb.jpegData(compressionQuality: 0.85)
+        }
+        document.updatedAt = Date()
+        CoreDataStack.shared.saveIfNeeded()
+    }
+
     private func shareTapped() {
         guard let url = pdfURL() else { return }
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -306,12 +337,14 @@ private final class ActionDockBar: UIView {
     var onTapShare: (() -> Void)?
     var onTapPrint: (() -> Void)?
     var onTapDelete: (() -> Void)?
+    var onTapOrganize: (() -> Void)?
 
     var accentColor: UIColor = .systemRed { didSet { applyColors() } }
     var unselectedColor: UIColor = .systemRed { didSet { applyColors() } }
     var tabbarColor: UIColor = .white { didSet { setNeedsDisplay() } }
 
     private let share = ActionTabItem()
+    private let organize = ActionTabItem()
     private let print = ActionTabItem()
     private let delete = ActionTabItem()
 
@@ -343,6 +376,7 @@ private final class ActionDockBar: UIView {
 
     private func setup() {
         share.configure(title: "Share", systemImage: "square.and.arrow.up")
+        organize.configure(title: "Organize", systemImage: "square.stack.3d.up")
         print.configure(title: "Print", systemImage: "printer")
         delete.configure(title: "Delete", systemImage: "trash")
 
@@ -353,9 +387,10 @@ private final class ActionDockBar: UIView {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        [share, print, delete].forEach { stack.addArrangedSubview($0) }
+        [share, organize, print, delete].forEach { stack.addArrangedSubview($0) }
 
         share.onTap = { [weak self] in self?.onTapShare?() }
+        organize.onTap = { [weak self] in self?.onTapOrganize?() }
         print.onTap = { [weak self] in self?.onTapPrint?() }
         delete.onTap = { [weak self] in self?.onTapDelete?() }
 
@@ -363,7 +398,7 @@ private final class ActionDockBar: UIView {
     }
 
     private func applyColors() {
-        [share, print, delete].forEach {
+        [share, organize, print, delete].forEach {
             $0.selectedColor = accentColor
             $0.unselectedColor = unselectedColor
             $0.isSelected = true
@@ -421,7 +456,7 @@ private final class ActionDockBar: UIView {
         let dynamicBottomInset: CGFloat = safeBottom + 10
         let topInset: CGFloat = 12 // push content slightly down from the top
 
-        [share, print, delete].forEach { item in
+        [share, organize, print, delete].forEach { item in
             item.contentInsets.top = topInset
             item.contentInsets.bottom = dynamicBottomInset
         }
