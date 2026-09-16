@@ -55,6 +55,7 @@ final class DocumentDetailViewController: UIViewController {
 
         bar.onTapShare = { [weak self] in self?.shareTapped() }
         bar.onTapOrganize = { [weak self] in self?.organizeTapped() }
+        bar.onTapEnhance = { [weak self] in self?.enhanceTapped() }
         bar.onTapPrint = { [weak self] in self?.printTapped() }
         bar.onTapDelete = { [weak self] in self?.deleteTapped() }
         return bar
@@ -214,6 +215,93 @@ final class DocumentDetailViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    private func enhanceTapped() {
+        let sheet = UIAlertController(title: "Enhance", message: nil, preferredStyle: .actionSheet)
+
+        sheet.addAction(UIAlertAction(title: "Apply Filter", style: .default) { [weak self] _ in
+            self?.presentFilterOptions()
+        })
+        sheet.addAction(UIAlertAction(title: "Compress", style: .default) { [weak self] _ in
+            self?.presentCompressionOptions()
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 92, width: 1, height: 1)
+        }
+        sheet.view.tintColor = AppColors.primary
+        present(sheet, animated: true)
+    }
+
+    private func presentFilterOptions() {
+        let sheet = UIAlertController(title: "Apply Filter", message: "Applies to every page.", preferredStyle: .actionSheet)
+
+        for option in PDFFilterOption.allCases {
+            sheet.addAction(UIAlertAction(title: option.title, style: .default) { [weak self] _ in
+                self?.processDocument { PDFPageProcessor.rebuild($0) { PDFPageProcessor.apply(option, to: $0) } }
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 92, width: 1, height: 1)
+        }
+        sheet.view.tintColor = AppColors.primary
+        present(sheet, animated: true)
+    }
+
+    private func presentCompressionOptions() {
+        let sheet = UIAlertController(title: "Compress", message: "Reduces file size. Applies to every page.", preferredStyle: .actionSheet)
+
+        for level in PDFCompressionLevel.allCases {
+            sheet.addAction(UIAlertAction(title: level.title, style: .default) { [weak self] _ in
+                self?.processDocument { PDFPageProcessor.rebuild($0) { PDFPageProcessor.compress($0, level: level) } }
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 92, width: 1, height: 1)
+        }
+        sheet.view.tintColor = AppColors.primary
+        present(sheet, animated: true)
+    }
+
+    /// Runs a (potentially slow) rebuild off the main thread with a blocking
+    /// spinner, then persists the result the same way reorder does.
+    private func processDocument(_ transform: @escaping (PDFDocument) -> PDFDocument?) {
+        guard let pdfDocument else { return }
+
+        let overlay = UIActivityIndicatorView(style: .large)
+        overlay.color = AppColors.primary
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.startAnimating()
+        view.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            overlay.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+        view.isUserInteractionEnabled = false
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = transform(pdfDocument)
+            DispatchQueue.main.async {
+                overlay.removeFromSuperview()
+                self?.view.isUserInteractionEnabled = true
+
+                guard let self else { return }
+                guard let newDocument = result else {
+                    self.showAlert(title: "Error", message: "Couldn't process this document.")
+                    return
+                }
+                self.applyReorderedDocument(newDocument)
+            }
+        }
+    }
+
     private func organizeTapped() {
         guard let pdfDocument else { return }
         let reorderVC = ReorderPagesViewController(pdfDocument: pdfDocument) { [weak self] newDocument in
@@ -338,6 +426,7 @@ private final class ActionDockBar: UIView {
     var onTapPrint: (() -> Void)?
     var onTapDelete: (() -> Void)?
     var onTapOrganize: (() -> Void)?
+    var onTapEnhance: (() -> Void)?
 
     var accentColor: UIColor = .systemRed { didSet { applyColors() } }
     var unselectedColor: UIColor = .systemRed { didSet { applyColors() } }
@@ -345,6 +434,7 @@ private final class ActionDockBar: UIView {
 
     private let share = ActionTabItem()
     private let organize = ActionTabItem()
+    private let enhance = ActionTabItem()
     private let print = ActionTabItem()
     private let delete = ActionTabItem()
 
@@ -377,6 +467,7 @@ private final class ActionDockBar: UIView {
     private func setup() {
         share.configure(title: "Share", systemImage: "square.and.arrow.up")
         organize.configure(title: "Organize", systemImage: "square.stack.3d.up")
+        enhance.configure(title: "Enhance", systemImage: "wand.and.stars")
         print.configure(title: "Print", systemImage: "printer")
         delete.configure(title: "Delete", systemImage: "trash")
 
@@ -387,10 +478,11 @@ private final class ActionDockBar: UIView {
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        [share, organize, print, delete].forEach { stack.addArrangedSubview($0) }
+        [share, organize, enhance, print, delete].forEach { stack.addArrangedSubview($0) }
 
         share.onTap = { [weak self] in self?.onTapShare?() }
         organize.onTap = { [weak self] in self?.onTapOrganize?() }
+        enhance.onTap = { [weak self] in self?.onTapEnhance?() }
         print.onTap = { [weak self] in self?.onTapPrint?() }
         delete.onTap = { [weak self] in self?.onTapDelete?() }
 
@@ -398,7 +490,7 @@ private final class ActionDockBar: UIView {
     }
 
     private func applyColors() {
-        [share, organize, print, delete].forEach {
+        [share, organize, enhance, print, delete].forEach {
             $0.selectedColor = accentColor
             $0.unselectedColor = unselectedColor
             $0.isSelected = true
@@ -456,7 +548,7 @@ private final class ActionDockBar: UIView {
         let dynamicBottomInset: CGFloat = safeBottom + 10
         let topInset: CGFloat = 12 // push content slightly down from the top
 
-        [share, organize, print, delete].forEach { item in
+        [share, organize, enhance, print, delete].forEach { item in
             item.contentInsets.top = topInset
             item.contentInsets.bottom = dynamicBottomInset
         }
