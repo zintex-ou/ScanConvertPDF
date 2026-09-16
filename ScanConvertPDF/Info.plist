@@ -16,6 +16,11 @@
     <key>NSUserTrackingUsageDescription</key>
     <string>We use your data to deliver personalized ads and measure advertising performance.</string>
 
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>itms-apps</string>
+    </array>
+
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>

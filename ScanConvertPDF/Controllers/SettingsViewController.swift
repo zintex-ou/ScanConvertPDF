@@ -39,7 +39,7 @@ final class SettingsViewController: UIViewController {
 
     private var sections: [SettingsSection] = []
     
-    private let appStoreID: String = "6758149297"
+    private let appStoreID: String = "6748354307"
     
     private enum SupportEmail {
         static let address = "bhalatpuneey@gmail.com"
